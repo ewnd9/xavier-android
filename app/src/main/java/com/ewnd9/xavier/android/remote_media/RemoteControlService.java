@@ -39,7 +39,7 @@ public class RemoteControlService extends NotificationListenerService {
     public static final String INTENT_COMMAND = "INTENT_COMMAND";
     public static final String EXTRA_COMMAND = "EXTRA_COMMAND";
 
-    public static final String EXTRA_MESSAGE_ID = "EXTRA_MESSAGE_ID";
+    public static final String EXTRA_ID = "EXTRA_ID";
 
     public static final String EXTRA_NEXT_TRACK = "EXTRA_NEXT_TRACK";
     public static final String EXTRA_PREVIOUS_TRACK = "EXTRA_PREVIOUS_TRACK";
@@ -54,8 +54,8 @@ public class RemoteControlService extends NotificationListenerService {
                 return;
             }
 
+            String id = intent.getStringExtra(EXTRA_ID);
             String command = intent.getStringExtra(EXTRA_COMMAND);
-            String messageId = intent.getStringExtra(EXTRA_MESSAGE_ID);
 
             if (EXTRA_NEXT_TRACK.equals(command)) {
                 rc.playNextTrack();
@@ -66,8 +66,8 @@ public class RemoteControlService extends NotificationListenerService {
             } else if (EXTRA_NOW_PLAYING.equals(command)) {
                 Map<String, String> args = new HashMap<>();
 
-                args.put("now_playing", rc.getNowPlaying());
-                args.put("messageId", messageId);
+                args.put("id", id);
+                args.put("message", "np: " + rc.getNowPlaying());
 
                 MyFirebase.sendIdToServer(args);
             }
