@@ -1,6 +1,12 @@
 # Xavier Android
 
-[WIP] upcoming android client for [xavier remote control app](https://github.com/ewnd9/xavier)
+Android (Marshmellow api 23+) client for [xavier remote control app](https://github.com/ewnd9/xavier)
+
+## Install
+
+```sh
+$ cp local.properties.sample local.properties # replace gcmAppId to your own
+```
 
 ## Notes
 

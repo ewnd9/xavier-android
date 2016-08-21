@@ -1,41 +1,78 @@
 package com.ewnd9.xavier.android.remote_media;
 
+import android.annotation.TargetApi;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.media.AudioManager;
-import android.media.RemoteController;
+import android.content.IntentFilter;
+import android.media.session.MediaSessionManager;
 import android.os.Binder;
+import android.os.Handler;
 import android.os.IBinder;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
-import android.view.KeyEvent;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import com.ewnd9.xavier.android.services.MyFirebase;
+
+import java.util.HashMap;
+import java.util.Map;
+
 
 /**
  * Created by ewnd9 on 17.06.16.
  */
-public class RemoteControlService extends NotificationListenerService implements RemoteController.OnClientUpdateListener {
+@TargetApi(21)
+public class RemoteControlService extends NotificationListenerService {
 
     private static final String TAG = "RemoteControlService";
 
     public static final String GET_BINDER_ACTION = "GET_BINDER_ACTION";
 
-    //dimensions in pixels for artwork
-    private static final int BITMAP_HEIGHT = 1024;
-    private static final int BITMAP_WIDTH = 1024;
-
-    //Binder for our service.
     private IBinder mBinder = new RCBinder();
-
-    private RemoteController mRemoteController;
     private Context mContext;
 
-    //external callback provided by user.
-    private RemoteController.OnClientUpdateListener mExternalClientUpdateListener;
+    private Handler handler = new Handler();
+    private RemoteControl rc;
+
+    public static final String INTENT_COMMAND = "INTENT_COMMAND";
+    public static final String EXTRA_COMMAND = "EXTRA_COMMAND";
+
+    public static final String EXTRA_MESSAGE_ID = "EXTRA_MESSAGE_ID";
+
+    public static final String EXTRA_NEXT_TRACK = "EXTRA_NEXT_TRACK";
+    public static final String EXTRA_PREVIOUS_TRACK = "EXTRA_PREVIOUS_TRACK";
+    public static final String EXTRA_PLAY_PAUSE = "EXTRA_PLAY_PAUSE";
+    public static final String EXTRA_NOW_PLAYING = "EXTRA_NOW_PLAYING";
+
+    private IntentFilter intentFilter = new IntentFilter(INTENT_COMMAND);
+    private BroadcastReceiver myReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (rc == null) {
+                return;
+            }
+
+            String command = intent.getStringExtra(EXTRA_COMMAND);
+            String messageId = intent.getStringExtra(EXTRA_MESSAGE_ID);
+
+            if (EXTRA_NEXT_TRACK.equals(command)) {
+                rc.playNextTrack();
+            } else if (EXTRA_PREVIOUS_TRACK.equals(command)) {
+                rc.playPreviousTrack();
+            } else if (EXTRA_PLAY_PAUSE.equals(command)) {
+                rc.playPauseTrack();
+            } else if (EXTRA_NOW_PLAYING.equals(command)) {
+                Map<String, String> args = new HashMap<>();
+
+                args.put("now_playing", rc.getNowPlaying());
+                args.put("messageId", messageId);
+
+                MyFirebase.sendIdToServer(args);
+            }
+        }
+    };
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -59,199 +96,25 @@ public class RemoteControlService extends NotificationListenerService implements
     @Override
     public void onCreate() {
         mContext = getApplicationContext();
-        mRemoteController = new RemoteController(mContext, this);
-
         Log.v(TAG, "onCreate");
+
+        MediaSessionManager manager = (MediaSessionManager) mContext.getSystemService(Context.MEDIA_SESSION_SERVICE);
+        ComponentName cmp = new ComponentName(this, getClass());
+
+        rc = new RemoteControl(manager, handler, cmp);
+        registerReceiver(myReceiver, intentFilter);
     }
 
     @Override
     public void onDestroy() {
-        setRemoteControllerDisabled();
+        rc.unregisterAll();
+        unregisterReceiver(myReceiver);
     }
 
-    //Following method will be called by Activity usign IBinder
-
-    /**
-     * Enables the RemoteController thus allowing us to receive metadata updates.
-     */
-    public void setRemoteControllerEnabled() {
-        if(!((AudioManager)mContext.getSystemService(Context.AUDIO_SERVICE)).registerRemoteController(mRemoteController)) {
-            throw new RuntimeException("Error while registering RemoteController!");
-        } else {
-            mRemoteController.setArtworkConfiguration(BITMAP_WIDTH, BITMAP_HEIGHT);
-            setSynchronizationMode(mRemoteController, RemoteController.POSITION_SYNCHRONIZATION_CHECK);
-        }
-    }
-
-    /**
-     * Disables RemoteController.
-     */
-    public void setRemoteControllerDisabled() {
-        ((AudioManager)mContext.getSystemService(Context.AUDIO_SERVICE)).unregisterRemoteController(mRemoteController);
-    }
-
-    /**
-     * Sets up external callback for client update events.
-     * @param listener External callback.
-     */
-    public void setClientUpdateListener(RemoteController.OnClientUpdateListener listener) {
-        mExternalClientUpdateListener = listener;
-    }
-
-    /**
-     * Sends "next" media key press.
-     */
-    public void sendNextKey() {
-        sendKeyEvent(KeyEvent.KEYCODE_MEDIA_NEXT);
-    }
-
-    /**
-     * Sends "previous" media key press.
-     */
-    public void sendPreviousKey() {
-        sendKeyEvent(KeyEvent.KEYCODE_MEDIA_PREVIOUS);
-    }
-
-    /**
-     * Sends "pause" media key press, or, if player ignored this button, "play/pause".
-     */
-    public void sendPauseKey() {
-        if(!sendKeyEvent(KeyEvent.KEYCODE_MEDIA_PAUSE)) {
-            sendKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
-        }
-    }
-
-    /**
-     * Sends "play" button press, or, if player ignored it, "play/pause".
-     */
-    public void sendPlayKey() {
-        if(!sendKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY)) {
-            sendKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
-        }
-    }
-
-    /**
-     * @return Current song position in milliseconds.
-     */
-    public long getEstimatedPosition() {
-        return mRemoteController.getEstimatedMediaPosition();
-    }
-
-    /**
-     * Seeks to given position.
-     * @param ms Position in milliseconds.
-     */
-    public void seekTo(long ms) {
-        mRemoteController.seekTo(ms);
-    }
-    //end of Binder methods.
-
-    //helper methods
-
-    //this method let us avoid the bug in RemoteController
-    //which results in Exception when calling RemoteController#setSynchronizationMode(int)
-    //doesn't seem to work though
-    private void setSynchronizationMode(RemoteController controller, int sync) {
-        if ((sync != RemoteController.POSITION_SYNCHRONIZATION_NONE) && (sync != RemoteController.POSITION_SYNCHRONIZATION_CHECK)) {
-            throw new IllegalArgumentException("Unknown synchronization mode " + sync);
-        }
-
-        Class<?> iRemoteControlDisplayClass;
-
-        try {
-            iRemoteControlDisplayClass  = Class.forName("android.media.IRemoteControlDisplay");
-        } catch (ClassNotFoundException e1) {
-            throw new RuntimeException("Class IRemoteControlDisplay doesn't exist, can't access it with reflection");
-        }
-
-        Method remoteControlDisplayWantsPlaybackPositionSyncMethod;
-        try {
-            remoteControlDisplayWantsPlaybackPositionSyncMethod = AudioManager.class.getDeclaredMethod("remoteControlDisplayWantsPlaybackPositionSync", iRemoteControlDisplayClass, boolean.class);
-            remoteControlDisplayWantsPlaybackPositionSyncMethod.setAccessible(true);
-        } catch (NoSuchMethodException e) {
-            throw new RuntimeException("Method remoteControlDisplayWantsPlaybackPositionSync() doesn't exist, can't access it with reflection");
-        }
-
-        Object rcDisplay;
-        Field rcDisplayField;
-        try {
-            rcDisplayField = RemoteController.class.getDeclaredField("mRcd");
-            rcDisplayField.setAccessible(true);
-            rcDisplay = rcDisplayField.get(mRemoteController);
-        } catch (NoSuchFieldException e) {
-            throw new RuntimeException("Field mRcd doesn't exist, can't access it with reflection");
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException("Field mRcd can't be accessed - access denied");
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Field mRcd can't be accessed - invalid argument");
-        }
-
-        AudioManager am = (AudioManager)mContext.getSystemService(Context.AUDIO_SERVICE);
-        try {
-            remoteControlDisplayWantsPlaybackPositionSyncMethod.invoke(am, iRemoteControlDisplayClass.cast(rcDisplay), true);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException("Method remoteControlDisplayWantsPlaybackPositionSync() invocation failure - access denied");
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Method remoteControlDisplayWantsPlaybackPositionSync() invocation failure - invalid arguments");
-        } catch (InvocationTargetException e) {
-            throw new RuntimeException("Method remoteControlDisplayWantsPlaybackPositionSync() invocation failure - invalid invocation target");
-        }
-    }
-
-
-    private boolean sendKeyEvent(int keyCode) {
-        //send "down" and "up" keyevents.
-        KeyEvent keyEvent = new KeyEvent(KeyEvent.ACTION_DOWN, keyCode);
-        boolean first = mRemoteController.sendMediaKeyEvent(keyEvent);
-        keyEvent = new KeyEvent(KeyEvent.ACTION_UP, keyCode);
-        boolean second = mRemoteController.sendMediaKeyEvent(keyEvent);
-
-        return first && second; //if both  clicks were delivered successfully
-    }
-    //end of helper methods.
-
-
-    //the most simple Binder implementation
     public class RCBinder extends Binder {
         public RemoteControlService getService() {
             return RemoteControlService.this;
         }
     }
 
-    //implementation of RemoteController.OnClientUpdateListener. Does nothing other than calling external callback.
-    @Override
-    public void onClientChange(boolean arg0) {
-        if(mExternalClientUpdateListener != null) {
-            mExternalClientUpdateListener.onClientChange(arg0);
-        }
-    }
-
-    @Override
-    public void onClientMetadataUpdate(RemoteController.MetadataEditor arg0) {
-        if(mExternalClientUpdateListener != null) {
-            mExternalClientUpdateListener.onClientMetadataUpdate(arg0);
-        }
-    }
-
-    @Override
-    public void onClientPlaybackStateUpdate(int arg0) {
-        if(mExternalClientUpdateListener != null) {
-            mExternalClientUpdateListener.onClientPlaybackStateUpdate(arg0);
-        }
-    }
-
-    @Override
-    public void onClientPlaybackStateUpdate(int arg0, long arg1, long arg2, float arg3) {
-        if(mExternalClientUpdateListener != null) {
-            mExternalClientUpdateListener.onClientPlaybackStateUpdate(arg0, arg1, arg2, arg3);
-        }
-    }
-
-    @Override
-    public void onClientTransportControlUpdate(int arg0) {
-        if(mExternalClientUpdateListener != null) {
-            mExternalClientUpdateListener.onClientTransportControlUpdate(arg0);
-        }
-
-    }
 }

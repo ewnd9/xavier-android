@@ -17,7 +17,6 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
 
-    private static final String SENDER_ID = "223613726281";
     private RemoteMediaController controller;
 
     @Override
@@ -27,15 +26,6 @@ public class MainActivity extends Activity {
 
         controller = new RemoteMediaController(this);
         controller.onCreate();
-
-//        FirebaseMessaging fm = FirebaseMessaging.getInstance();
-//        AtomicInteger msgId = new AtomicInteger();
-//
-//        fm.send(new RemoteMessage.Builder(SENDER_ID + "@gcm.googleapis.com")
-//                .setMessageId(Integer.toString(msgId.incrementAndGet()))
-//                .addData("my_message", "Hello World")
-//                .addData("my_action","SAY_HELLO")
-//                .build());
     }
 
     @Override
